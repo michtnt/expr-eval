@@ -1,21 +1,24 @@
 (function (global, factory) {
-  typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
-  typeof define === 'function' && define.amd ? define(factory) :
-  (global.exprEval = factory());
-}(this, (function () { 'use strict';
+  typeof exports === "object" && typeof module !== "undefined"
+    ? (module.exports = factory())
+    : typeof define === "function" && define.amd
+      ? define(factory)
+      : (global.exprEval = factory());
+})(this, function () {
+  "use strict";
 
-  var INUMBER = 'INUMBER';
-  var IOP1 = 'IOP1';
-  var IOP2 = 'IOP2';
-  var IOP3 = 'IOP3';
-  var IVAR = 'IVAR';
-  var IFUNCALL = 'IFUNCALL';
-  var IEXPR = 'IEXPR';
-  var IMEMBER = 'IMEMBER';
+  var INUMBER = "INUMBER";
+  var IOP1 = "IOP1";
+  var IOP2 = "IOP2";
+  var IOP3 = "IOP3";
+  var IVAR = "IVAR";
+  var IFUNCALL = "IFUNCALL";
+  var IEXPR = "IEXPR";
+  var IMEMBER = "IMEMBER";
 
   function Instruction(type, value) {
     this.type = type;
-    this.value = (value !== undefined && value !== null) ? value : 0;
+    this.value = value !== undefined && value !== null ? value : 0;
   }
 
   Instruction.prototype.toString = function () {
@@ -27,11 +30,11 @@
       case IVAR:
         return this.value;
       case IFUNCALL:
-        return 'CALL ' + this.value;
+        return "CALL " + this.value;
       case IMEMBER:
-        return '.' + this.value;
+        return "." + this.value;
       default:
-        return 'Invalid Instruction';
+        return "Invalid Instruction";
     }
   };
 
@@ -70,7 +73,7 @@
         n3 = nstack.pop();
         n2 = nstack.pop();
         n1 = nstack.pop();
-        if (item.value === '?') {
+        if (item.value === "?") {
           nstack.push(n1.value ? n2.value : n3.value);
         } else {
           f = ternaryOps[item.value];
@@ -86,8 +89,20 @@
         while (nstack.length > 0) {
           newexpression.push(nstack.shift());
         }
-        newexpression.push(new Instruction(IEXPR, simplify(item.value, unaryOps, binaryOps, ternaryOps, values)));
+        newexpression.push(
+          new Instruction(
+            IEXPR,
+            simplify(item.value, unaryOps, binaryOps, ternaryOps, values),
+          ),
+        );
       } else if (type === IMEMBER && nstack.length > 0) {
+        if (
+          item.value === "__proto__" ||
+          item.value === "prototype" ||
+          item.value === "constructor"
+        ) {
+          throw new Error("prototype access detected: " + item.value);
+        }
         n1 = nstack.pop();
         nstack.push(new Instruction(INUMBER, n1.value[item.value]));
       } else {
@@ -124,12 +139,30 @@
           newexpression.push(replitem);
         }
       } else if (type === IEXPR) {
-        newexpression.push(new Instruction(IEXPR, substitute(item.value, variable, expr)));
+        newexpression.push(
+          new Instruction(IEXPR, substitute(item.value, variable, expr)),
+        );
       } else {
         newexpression.push(item);
       }
     }
     return newexpression;
+  }
+
+  var DANGEROUS_PROPERTIES = {
+    __proto__: true,
+    prototype: true,
+    constructor: true,
+  };
+
+  function isRegisteredFunction(fn, expr) {
+    if (typeof fn !== "function") return true;
+    var fns = expr.functions;
+    for (var key in fns) {
+      if (Object.prototype.hasOwnProperty.call(fns, key) && fns[key] === fn)
+        return true;
+    }
+    return false;
   }
 
   function evaluate(tokens, expr, values) {
@@ -144,9 +177,9 @@
       } else if (type === IOP2) {
         n2 = nstack.pop();
         n1 = nstack.pop();
-        if (item.value === '&&') {
+        if (item.value === "&&") {
           nstack.push(n1 ? !!evaluate(n2, expr, values) : false);
-        } else if (item.value === '||') {
+        } else if (item.value === "||") {
           nstack.push(n1 ? true : !!evaluate(n2, expr, values));
         } else {
           f = expr.binaryOps[item.value];
@@ -156,21 +189,29 @@
         n3 = nstack.pop();
         n2 = nstack.pop();
         n1 = nstack.pop();
-        if (item.value === '?') {
+        if (item.value === "?") {
           nstack.push(evaluate(n1 ? n2 : n3, expr, values));
         } else {
           f = expr.ternaryOps[item.value];
           nstack.push(f(n1, n2, n3));
         }
       } else if (type === IVAR) {
+        if (DANGEROUS_PROPERTIES[item.value]) {
+          throw new Error("prototype access detected: " + item.value);
+        }
         if (item.value in expr.functions) {
           nstack.push(expr.functions[item.value]);
         } else {
           var v = values[item.value];
           if (v !== undefined) {
+            if (typeof v === "function" && !isRegisteredFunction(v, expr)) {
+              throw new Error(
+                "calling unregistered functions is not allowed: " + item.value,
+              );
+            }
             nstack.push(v);
           } else {
-            throw new Error('undefined variable: ' + item.value);
+            throw new Error("undefined variable: " + item.value);
           }
         }
       } else if (type === IOP1) {
@@ -184,22 +225,37 @@
           args.unshift(nstack.pop());
         }
         f = nstack.pop();
-        if (f.apply && f.call) {
+        if (f && f.apply && f.call) {
+          if (!isRegisteredFunction(f, expr)) {
+            throw new Error("calling unregistered functions is not allowed");
+          }
           nstack.push(f.apply(undefined, args));
         } else {
-          throw new Error(f + ' is not a function');
+          throw new Error(f + " is not a function");
         }
       } else if (type === IEXPR) {
         nstack.push(item.value);
       } else if (type === IMEMBER) {
+        if (DANGEROUS_PROPERTIES[item.value]) {
+          throw new Error("prototype access detected: " + item.value);
+        }
         n1 = nstack.pop();
-        nstack.push(n1[item.value]);
+        var member = n1 == null ? undefined : n1[item.value];
+        if (
+          typeof member === "function" &&
+          !isRegisteredFunction(member, expr)
+        ) {
+          throw new Error(
+            "calling unregistered functions is not allowed: " + item.value,
+          );
+        }
+        nstack.push(member);
       } else {
-        throw new Error('invalid Expression');
+        throw new Error("invalid Expression");
       }
     }
     if (nstack.length > 1) {
-      throw new Error('invalid Expression (parity)');
+      throw new Error("invalid Expression (parity)");
     }
     return nstack[0];
   }
@@ -212,8 +268,8 @@
       var item = tokens[i];
       var type = item.type;
       if (type === INUMBER) {
-        if (typeof item.value === 'number' && item.value < 0) {
-          nstack.push('(' + item.value + ')');
+        if (typeof item.value === "number" && item.value < 0) {
+          nstack.push("(" + item.value + ")");
         } else {
           nstack.push(escapeValue(item.value));
         }
@@ -222,51 +278,51 @@
         n1 = nstack.pop();
         f = item.value;
         if (toJS) {
-          if (f === '^') {
-            nstack.push('Math.pow(' + n1 + ', ' + n2 + ')');
-          } else if (f === '&&') {
-            nstack.push('(!!' + n1 + ' && !!' + n2 + ')');
-          } else if (f === '||') {
-            nstack.push('(!!' + n1 + ' || !!' + n2 + ')');
-          } else if (f === '==') {
-            nstack.push('(' + n1 + ' === ' + n2 + ')');
-          } else if (f === '!=') {
-            nstack.push('(' + n1 + ' !== ' + n2 + ')');
+          if (f === "^") {
+            nstack.push("Math.pow(" + n1 + ", " + n2 + ")");
+          } else if (f === "&&") {
+            nstack.push("(!!" + n1 + " && !!" + n2 + ")");
+          } else if (f === "||") {
+            nstack.push("(!!" + n1 + " || !!" + n2 + ")");
+          } else if (f === "==") {
+            nstack.push("(" + n1 + " === " + n2 + ")");
+          } else if (f === "!=") {
+            nstack.push("(" + n1 + " !== " + n2 + ")");
           } else {
-            nstack.push('(' + n1 + ' ' + f + ' ' + n2 + ')');
+            nstack.push("(" + n1 + " " + f + " " + n2 + ")");
           }
         } else {
-          nstack.push('(' + n1 + ' ' + f + ' ' + n2 + ')');
+          nstack.push("(" + n1 + " " + f + " " + n2 + ")");
         }
       } else if (type === IOP3) {
         n3 = nstack.pop();
         n2 = nstack.pop();
         n1 = nstack.pop();
         f = item.value;
-        if (f === '?') {
-          nstack.push('(' + n1 + ' ? ' + n2 + ' : ' + n3 + ')');
+        if (f === "?") {
+          nstack.push("(" + n1 + " ? " + n2 + " : " + n3 + ")");
         } else {
-          throw new Error('invalid Expression');
+          throw new Error("invalid Expression");
         }
       } else if (type === IVAR) {
         nstack.push(item.value);
       } else if (type === IOP1) {
         n1 = nstack.pop();
         f = item.value;
-        if (f === '-' || f === '+') {
-          nstack.push('(' + f + n1 + ')');
+        if (f === "-" || f === "+") {
+          nstack.push("(" + f + n1 + ")");
         } else if (toJS) {
-          if (f === '!') {
-            nstack.push('(' + '!' + n1 + ')');
-          } else if (f === 'fac') {
-            nstack.push('fac(' + n1 + ')');
+          if (f === "!") {
+            nstack.push("(" + "!" + n1 + ")");
+          } else if (f === "fac") {
+            nstack.push("fac(" + n1 + ")");
           } else {
-            nstack.push(f + '(' + n1 + ')');
+            nstack.push(f + "(" + n1 + ")");
           }
-        } else if (f === '!') {
-          nstack.push('(' + '!' + n1 + ')');
+        } else if (f === "!") {
+          nstack.push("(" + "!" + n1 + ")");
         } else {
-          nstack.push('(' + f + ' ' + n1 + ')');
+          nstack.push("(" + f + " " + n1 + ")");
         }
       } else if (type === IFUNCALL) {
         var argCount = item.value;
@@ -275,25 +331,27 @@
           args.unshift(nstack.pop());
         }
         f = nstack.pop();
-        nstack.push(f + '(' + args.join(', ') + ')');
+        nstack.push(f + "(" + args.join(", ") + ")");
       } else if (type === IMEMBER) {
         n1 = nstack.pop();
-        nstack.push(n1 + '.' + item.value);
+        nstack.push(n1 + "." + item.value);
       } else if (type === IEXPR) {
-        nstack.push('(' + expressionToString(item.value, toJS) + ')');
+        nstack.push("(" + expressionToString(item.value, toJS) + ")");
       } else {
-        throw new Error('invalid Expression');
+        throw new Error("invalid Expression");
       }
     }
     if (nstack.length > 1) {
-      throw new Error('invalid Expression (parity)');
+      throw new Error("invalid Expression (parity)");
     }
     return String(nstack[0]);
   }
 
   function escapeValue(v) {
-    if (typeof v === 'string') {
-      return JSON.stringify(v).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    if (typeof v === "string") {
+      return JSON.stringify(v)
+        .replace(/\u2028/g, "\\u2028")
+        .replace(/\u2029/g, "\\u2029");
     }
     return v;
   }
@@ -326,7 +384,7 @@
           prevVar = item.value;
         }
       } else if (item.type === IMEMBER && withMembers && prevVar !== null) {
-        prevVar += '.' + item.value;
+        prevVar += "." + item.value;
       } else if (item.type === IEXPR) {
         getSymbols(item.value, symbols, options);
       } else if (prevVar !== null) {
@@ -353,7 +411,16 @@
 
   Expression.prototype.simplify = function (values) {
     values = values || {};
-    return new Expression(simplify(this.tokens, this.unaryOps, this.binaryOps, this.ternaryOps, values), this.parser);
+    return new Expression(
+      simplify(
+        this.tokens,
+        this.unaryOps,
+        this.binaryOps,
+        this.ternaryOps,
+        values,
+      ),
+      this.parser,
+    );
   };
 
   Expression.prototype.substitute = function (variable, expr) {
@@ -392,19 +459,24 @@
 
   Expression.prototype.toJSFunction = function (param, variables) {
     var expr = this;
-    var f = new Function(param, 'with(this.functions) with (this.ternaryOps) with (this.binaryOps) with (this.unaryOps) { return ' + expressionToString(this.simplify(variables).tokens, true) + '; }'); // eslint-disable-line no-new-func
+    var f = new Function(
+      param,
+      "with(this.functions) with (this.ternaryOps) with (this.binaryOps) with (this.unaryOps) { return " +
+        expressionToString(this.simplify(variables).tokens, true) +
+        "; }",
+    ); // eslint-disable-line no-new-func
     return function () {
       return f.apply(expr, arguments);
     };
   };
 
-  var TEOF = 'TEOF';
-  var TOP = 'TOP';
-  var TNUMBER = 'TNUMBER';
-  var TSTRING = 'TSTRING';
-  var TPAREN = 'TPAREN';
-  var TCOMMA = 'TCOMMA';
-  var TNAME = 'TNAME';
+  var TEOF = "TEOF";
+  var TOP = "TOP";
+  var TNUMBER = "TNUMBER";
+  var TSTRING = "TSTRING";
+  var TPAREN = "TPAREN";
+  var TCOMMA = "TCOMMA";
+  var TNAME = "TNAME";
 
   function Token(type, value, index) {
     this.type = type;
@@ -413,7 +485,7 @@
   }
 
   Token.prototype.toString = function () {
-    return this.type + ': ' + this.value;
+    return this.type + ": " + this.value;
   };
 
   function TokenStream(parser, expression) {
@@ -445,23 +517,27 @@
 
   TokenStream.prototype.next = function () {
     if (this.pos >= this.expression.length) {
-      return this.newToken(TEOF, 'EOF');
+      return this.newToken(TEOF, "EOF");
     }
 
     if (this.isWhitespace() || this.isComment()) {
       return this.next();
-    } else if (this.isRadixInteger() ||
-        this.isNumber() ||
-        this.isOperator() ||
-        this.isString() ||
-        this.isParen() ||
-        this.isComma() ||
-        this.isNamedOp() ||
-        this.isConst() ||
-        this.isName()) {
+    } else if (
+      this.isRadixInteger() ||
+      this.isNumber() ||
+      this.isOperator() ||
+      this.isString() ||
+      this.isParen() ||
+      this.isComma() ||
+      this.isNamedOp() ||
+      this.isConst() ||
+      this.isName()
+    ) {
       return this.current;
     } else {
-      this.parseError('Unknown character "' + this.expression.charAt(this.pos) + '"');
+      this.parseError(
+        'Unknown character "' + this.expression.charAt(this.pos) + '"',
+      );
     }
   };
 
@@ -470,13 +546,17 @@
     var startPos = this.pos;
     var quote = this.expression.charAt(startPos);
 
-    if (quote === '\'' || quote === '"') {
+    if (quote === "'" || quote === '"') {
       var index = this.expression.indexOf(quote, startPos + 1);
       while (index >= 0 && this.pos < this.expression.length) {
         this.pos = index + 1;
-        if (this.expression.charAt(index - 1) !== '\\') {
+        if (this.expression.charAt(index - 1) !== "\\") {
           var rawString = this.expression.substring(startPos + 1, index);
-          this.current = this.newToken(TSTRING, this.unescape(rawString), startPos);
+          this.current = this.newToken(
+            TSTRING,
+            this.unescape(rawString),
+            startPos,
+          );
           r = true;
           break;
         }
@@ -488,7 +568,7 @@
 
   TokenStream.prototype.isParen = function () {
     var c = this.expression.charAt(this.pos);
-    if (c === '(' || c === ')') {
+    if (c === "(" || c === ")") {
       this.current = this.newToken(TPAREN, c);
       this.pos++;
       return true;
@@ -498,8 +578,8 @@
 
   TokenStream.prototype.isComma = function () {
     var c = this.expression.charAt(this.pos);
-    if (c === ',') {
-      this.current = this.newToken(TCOMMA, ',');
+    if (c === ",") {
+      this.current = this.newToken(TCOMMA, ",");
       this.pos++;
       return true;
     }
@@ -512,7 +592,10 @@
     for (; i < this.expression.length; i++) {
       var c = this.expression.charAt(i);
       if (c.toUpperCase() === c.toLowerCase()) {
-        if (i === this.pos || (c !== '_' && c !== '.' && (c < '0' || c > '9'))) {
+        if (
+          i === this.pos ||
+          (c !== "_" && c !== "." && (c < "0" || c > "9"))
+        ) {
           break;
         }
       }
@@ -534,14 +617,19 @@
     for (; i < this.expression.length; i++) {
       var c = this.expression.charAt(i);
       if (c.toUpperCase() === c.toLowerCase()) {
-        if (i === this.pos || (c !== '_' && (c < '0' || c > '9'))) {
+        if (i === this.pos || (c !== "_" && (c < "0" || c > "9"))) {
           break;
         }
       }
     }
     if (i > startPos) {
       var str = this.expression.substring(startPos, i);
-      if (this.isOperatorEnabled(str) && (str in this.binaryOps || str in this.unaryOps || str in this.ternaryOps)) {
+      if (
+        this.isOperatorEnabled(str) &&
+        (str in this.binaryOps ||
+          str in this.unaryOps ||
+          str in this.ternaryOps)
+      ) {
         this.current = this.newToken(TOP, str);
         this.pos += str.length;
         return true;
@@ -557,12 +645,16 @@
     for (; i < this.expression.length; i++) {
       var c = this.expression.charAt(i);
       if (c.toUpperCase() === c.toLowerCase()) {
-        if (i === this.pos && (c === '$' || c === '_')) {
-          if (c === '_') {
+        if (i === this.pos && (c === "$" || c === "_")) {
+          if (c === "_") {
             hasLetter = true;
           }
           continue;
-        } else if (i === this.pos || !hasLetter || (c !== '_' && (c < '0' || c > '9'))) {
+        } else if (
+          i === this.pos ||
+          !hasLetter ||
+          (c !== "_" && (c < "0" || c > "9"))
+        ) {
           break;
         }
       } else {
@@ -581,7 +673,7 @@
   TokenStream.prototype.isWhitespace = function () {
     var r = false;
     var c = this.expression.charAt(this.pos);
-    while (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+    while (c === " " || c === "\t" || c === "\n" || c === "\r") {
       r = true;
       this.pos++;
       if (this.pos >= this.expression.length) {
@@ -595,7 +687,7 @@
   var codePointPattern = /^[0-9a-f]{4}$/i;
 
   TokenStream.prototype.unescape = function (v) {
-    var index = v.indexOf('\\');
+    var index = v.indexOf("\\");
     if (index < 0) {
       return v;
     }
@@ -604,38 +696,38 @@
     while (index >= 0) {
       var c = v.charAt(++index);
       switch (c) {
-        case '\'':
-          buffer += '\'';
+        case "'":
+          buffer += "'";
           break;
         case '"':
           buffer += '"';
           break;
-        case '\\':
-          buffer += '\\';
+        case "\\":
+          buffer += "\\";
           break;
-        case '/':
-          buffer += '/';
+        case "/":
+          buffer += "/";
           break;
-        case 'b':
-          buffer += '\b';
+        case "b":
+          buffer += "\b";
           break;
-        case 'f':
-          buffer += '\f';
+        case "f":
+          buffer += "\f";
           break;
-        case 'n':
-          buffer += '\n';
+        case "n":
+          buffer += "\n";
           break;
-        case 'r':
-          buffer += '\r';
+        case "r":
+          buffer += "\r";
           break;
-        case 't':
-          buffer += '\t';
+        case "t":
+          buffer += "\t";
           break;
-        case 'u':
+        case "u":
           // interpret the following 4 characters as the hex of the unicode code point
           var codePoint = v.substring(index + 1, index + 5);
           if (!codePointPattern.test(codePoint)) {
-            this.parseError('Illegal escape sequence: \\u' + codePoint);
+            this.parseError("Illegal escape sequence: \\u" + codePoint);
           }
           buffer += String.fromCharCode(parseInt(codePoint, 16));
           index += 4;
@@ -644,7 +736,7 @@
           throw this.parseError('Illegal escape sequence: "\\' + c + '"');
       }
       ++index;
-      var backslash = v.indexOf('\\', index);
+      var backslash = v.indexOf("\\", index);
       buffer += v.substring(index, backslash < 0 ? v.length : backslash);
       index = backslash;
     }
@@ -654,8 +746,8 @@
 
   TokenStream.prototype.isComment = function () {
     var c = this.expression.charAt(this.pos);
-    if (c === '/' && this.expression.charAt(this.pos + 1) === '*') {
-      this.pos = this.expression.indexOf('*/', this.pos) + 2;
+    if (c === "/" && this.expression.charAt(this.pos + 1) === "*") {
+      this.pos = this.expression.indexOf("*/", this.pos) + 2;
       if (this.pos === 1) {
         this.pos = this.expression.length;
       }
@@ -667,18 +759,21 @@
   TokenStream.prototype.isRadixInteger = function () {
     var pos = this.pos;
 
-    if (pos >= this.expression.length - 2 || this.expression.charAt(pos) !== '0') {
+    if (
+      pos >= this.expression.length - 2 ||
+      this.expression.charAt(pos) !== "0"
+    ) {
       return false;
     }
     ++pos;
 
     var radix;
     var validDigit;
-    if (this.expression.charAt(pos) === 'x') {
+    if (this.expression.charAt(pos) === "x") {
       radix = 16;
       validDigit = /^[0-9a-f]$/i;
       ++pos;
-    } else if (this.expression.charAt(pos) === 'b') {
+    } else if (this.expression.charAt(pos) === "b") {
       radix = 2;
       validDigit = /^[01]$/i;
       ++pos;
@@ -700,7 +795,10 @@
     }
 
     if (valid) {
-      this.current = this.newToken(TNUMBER, parseInt(this.expression.substring(startPos, pos), radix));
+      this.current = this.newToken(
+        TNUMBER,
+        parseInt(this.expression.substring(startPos, pos), radix),
+      );
       this.pos = pos;
     }
     return valid;
@@ -717,8 +815,8 @@
 
     while (pos < this.expression.length) {
       c = this.expression.charAt(pos);
-      if ((c >= '0' && c <= '9') || (!foundDot && c === '.')) {
-        if (c === '.') {
+      if ((c >= "0" && c <= "9") || (!foundDot && c === ".")) {
+        if (c === ".") {
           foundDot = true;
         } else {
           foundDigits = true;
@@ -734,15 +832,15 @@
       resetPos = pos;
     }
 
-    if (c === 'e' || c === 'E') {
+    if (c === "e" || c === "E") {
       pos++;
       var acceptSign = true;
       var validExponent = false;
       while (pos < this.expression.length) {
         c = this.expression.charAt(pos);
-        if (acceptSign && (c === '+' || c === '-')) {
+        if (acceptSign && (c === "+" || c === "-")) {
           acceptSign = false;
-        } else if (c >= '0' && c <= '9') {
+        } else if (c >= "0" && c <= "9") {
           validExponent = true;
           acceptSign = false;
         } else {
@@ -757,7 +855,10 @@
     }
 
     if (valid) {
-      this.current = this.newToken(TNUMBER, parseFloat(this.expression.substring(startPos, pos)));
+      this.current = this.newToken(
+        TNUMBER,
+        parseFloat(this.expression.substring(startPos, pos)),
+      );
       this.pos = pos;
     } else {
       this.pos = resetPos;
@@ -769,48 +870,58 @@
     var startPos = this.pos;
     var c = this.expression.charAt(this.pos);
 
-    if (c === '+' || c === '-' || c === '*' || c === '/' || c === '%' || c === '^' || c === '?' || c === ':' || c === '.') {
+    if (
+      c === "+" ||
+      c === "-" ||
+      c === "*" ||
+      c === "/" ||
+      c === "%" ||
+      c === "^" ||
+      c === "?" ||
+      c === ":" ||
+      c === "."
+    ) {
       this.current = this.newToken(TOP, c);
-    } else if (c === '∙' || c === '•') {
-      this.current = this.newToken(TOP, '*');
-    } else if (c === '>') {
-      if (this.expression.charAt(this.pos + 1) === '=') {
-        this.current = this.newToken(TOP, '>=');
+    } else if (c === "∙" || c === "•") {
+      this.current = this.newToken(TOP, "*");
+    } else if (c === ">") {
+      if (this.expression.charAt(this.pos + 1) === "=") {
+        this.current = this.newToken(TOP, ">=");
         this.pos++;
       } else {
-        this.current = this.newToken(TOP, '>');
+        this.current = this.newToken(TOP, ">");
       }
-    } else if (c === '<') {
-      if (this.expression.charAt(this.pos + 1) === '=') {
-        this.current = this.newToken(TOP, '<=');
+    } else if (c === "<") {
+      if (this.expression.charAt(this.pos + 1) === "=") {
+        this.current = this.newToken(TOP, "<=");
         this.pos++;
       } else {
-        this.current = this.newToken(TOP, '<');
+        this.current = this.newToken(TOP, "<");
       }
-    } else if (c === '|') {
-      if (this.expression.charAt(this.pos + 1) === '|') {
-        this.current = this.newToken(TOP, '||');
-        this.pos++;
-      } else {
-        return false;
-      }
-    } else if (c === '&') {
-      if (this.expression.charAt(this.pos + 1) === '&') {
-        this.current = this.newToken(TOP, '&&');
+    } else if (c === "|") {
+      if (this.expression.charAt(this.pos + 1) === "|") {
+        this.current = this.newToken(TOP, "||");
         this.pos++;
       } else {
         return false;
       }
-    } else if (c === '=') {
-      if (this.expression.charAt(this.pos + 1) === '=') {
-        this.current = this.newToken(TOP, '==');
+    } else if (c === "&") {
+      if (this.expression.charAt(this.pos + 1) === "&") {
+        this.current = this.newToken(TOP, "&&");
         this.pos++;
       } else {
         return false;
       }
-    } else if (c === '!') {
-      if (this.expression.charAt(this.pos + 1) === '=') {
-        this.current = this.newToken(TOP, '!=');
+    } else if (c === "=") {
+      if (this.expression.charAt(this.pos + 1) === "=") {
+        this.current = this.newToken(TOP, "==");
+        this.pos++;
+      } else {
+        return false;
+      }
+    } else if (c === "!") {
+      if (this.expression.charAt(this.pos + 1) === "=") {
+        this.current = this.newToken(TOP, "!=");
         this.pos++;
       } else {
         this.current = this.newToken(TOP, c);
@@ -829,25 +940,25 @@
   };
 
   var optionNameMap = {
-    '+': 'add',
-    '-': 'subtract',
-    '*': 'multiply',
-    '/': 'divide',
-    '%': 'remainder',
-    '^': 'power',
-    'reserved': 'factorial',
-    '<': 'comparison',
-    '>': 'comparison',
-    '<=': 'comparison',
-    '>=': 'comparison',
-    '==': 'comparison',
-    '!=': 'comparison',
-    'reserved2': 'concatenate',
-    '&&': 'logical',
-    '||': 'logical',
-    '!': 'logical',
-    '?': 'conditional',
-    ':': 'conditional'
+    "+": "add",
+    "-": "subtract",
+    "*": "multiply",
+    "/": "divide",
+    "%": "remainder",
+    "^": "power",
+    reserved: "factorial",
+    "<": "comparison",
+    ">": "comparison",
+    "<=": "comparison",
+    ">=": "comparison",
+    "==": "comparison",
+    "!=": "comparison",
+    reserved2: "concatenate",
+    "&&": "logical",
+    "||": "logical",
+    "!": "logical",
+    "?": "conditional",
+    ":": "conditional",
   };
 
   function getOptionName(op) {
@@ -859,8 +970,8 @@
     var operators = this.options.operators || {};
 
     // in is a special case for now because it's disabled by default
-    if (optionName === 'in') {
-      return !!operators['in'];
+    if (optionName === "in") {
+      return !!operators["in"];
     }
 
     return !(optionName in operators) || !!operators[optionName];
@@ -873,18 +984,20 @@
     do {
       line++;
       column = this.pos - newline;
-      newline = this.expression.indexOf('\n', newline + 1);
+      newline = this.expression.indexOf("\n", newline + 1);
     } while (newline >= 0 && newline < this.pos);
 
     return {
       line: line,
-      column: column
+      column: column,
     };
   };
 
   TokenStream.prototype.parseError = function (msg) {
     var coords = this.getCoordinates();
-    throw new Error('parse error [' + coords.line + ':' + coords.column + ']: ' + msg);
+    throw new Error(
+      "parse error [" + coords.line + ":" + coords.column + "]: " + msg,
+    );
   };
 
   function ParserState(parser, tokenStream, options) {
@@ -904,11 +1017,11 @@
   };
 
   ParserState.prototype.tokenMatches = function (token, value) {
-    if (typeof value === 'undefined') {
+    if (typeof value === "undefined") {
       return true;
     } else if (Array.isArray(value)) {
       return contains(value, token.value);
-    } else if (typeof value === 'function') {
+    } else if (typeof value === "function") {
       return value(token);
     } else {
       return token.value === value;
@@ -928,7 +1041,10 @@
   };
 
   ParserState.prototype.accept = function (type, value) {
-    if (this.nextToken.type === type && this.tokenMatches(this.nextToken, value)) {
+    if (
+      this.nextToken.type === type &&
+      this.tokenMatches(this.nextToken, value)
+    ) {
       this.next();
       return true;
     }
@@ -938,7 +1054,14 @@
   ParserState.prototype.expect = function (type, value) {
     if (!this.accept(type, value)) {
       var coords = this.tokens.getCoordinates();
-      throw new Error('parse error [' + coords.line + ':' + coords.column + ']: Expected ' + (value || type));
+      throw new Error(
+        "parse error [" +
+          coords.line +
+          ":" +
+          coords.column +
+          "]: Expected " +
+          (value || type),
+      );
     }
   };
 
@@ -949,11 +1072,11 @@
       instr.push(new Instruction(INUMBER, this.current.value));
     } else if (this.accept(TSTRING)) {
       instr.push(new Instruction(INUMBER, this.current.value));
-    } else if (this.accept(TPAREN, '(')) {
+    } else if (this.accept(TPAREN, "(")) {
       this.parseExpression(instr);
-      this.expect(TPAREN, ')');
+      this.expect(TPAREN, ")");
     } else {
-      throw new Error('unexpected ' + this.nextToken);
+      throw new Error("unexpected " + this.nextToken);
     }
   };
 
@@ -963,39 +1086,39 @@
 
   ParserState.prototype.parseConditionalExpression = function (instr) {
     this.parseOrExpression(instr);
-    while (this.accept(TOP, '?')) {
+    while (this.accept(TOP, "?")) {
       var trueBranch = [];
       var falseBranch = [];
       this.parseConditionalExpression(trueBranch);
-      this.expect(TOP, ':');
+      this.expect(TOP, ":");
       this.parseConditionalExpression(falseBranch);
       instr.push(new Instruction(IEXPR, trueBranch));
       instr.push(new Instruction(IEXPR, falseBranch));
-      instr.push(ternaryInstruction('?'));
+      instr.push(ternaryInstruction("?"));
     }
   };
 
   ParserState.prototype.parseOrExpression = function (instr) {
     this.parseAndExpression(instr);
-    while (this.accept(TOP, '||')) {
+    while (this.accept(TOP, "||")) {
       var falseBranch = [];
       this.parseAndExpression(falseBranch);
       instr.push(new Instruction(IEXPR, falseBranch));
-      instr.push(binaryInstruction('||'));
+      instr.push(binaryInstruction("||"));
     }
   };
 
   ParserState.prototype.parseAndExpression = function (instr) {
     this.parseComparison(instr);
-    while (this.accept(TOP, '&&')) {
+    while (this.accept(TOP, "&&")) {
       var trueBranch = [];
       this.parseComparison(trueBranch);
       instr.push(new Instruction(IEXPR, trueBranch));
-      instr.push(binaryInstruction('&&'));
+      instr.push(binaryInstruction("&&"));
     }
   };
 
-  var COMPARISON_OPERATORS = ['==', '!=', '<', '<=', '>=', '>', 'in'];
+  var COMPARISON_OPERATORS = ["==", "!=", "<", "<=", ">=", ">", "in"];
 
   ParserState.prototype.parseComparison = function (instr) {
     this.parseAddSub(instr);
@@ -1006,7 +1129,7 @@
     }
   };
 
-  var ADD_SUB_OPERATORS = ['+', '-', '--'];
+  var ADD_SUB_OPERATORS = ["+", "-", "--"];
 
   ParserState.prototype.parseAddSub = function (instr) {
     this.parseTerm(instr);
@@ -1017,7 +1140,7 @@
     }
   };
 
-  var TERM_OPERATORS = ['*', '/', '%'];
+  var TERM_OPERATORS = ["*", "/", "%"];
 
   ParserState.prototype.parseTerm = function (instr) {
     this.parseFactor(instr);
@@ -1036,7 +1159,12 @@
 
     this.save();
     if (this.accept(TOP, isPrefixOperator)) {
-      if ((this.current.value !== '-' && this.current.value !== '+' && this.nextToken.type === TPAREN && this.nextToken.value === '(')) {
+      if (
+        this.current.value !== "-" &&
+        this.current.value !== "+" &&
+        this.nextToken.type === TPAREN &&
+        this.nextToken.value === "("
+      ) {
         this.restore();
         this.parseExponential(instr);
       } else {
@@ -1051,16 +1179,16 @@
 
   ParserState.prototype.parseExponential = function (instr) {
     this.parsePostfixExpression(instr);
-    while (this.accept(TOP, '^')) {
+    while (this.accept(TOP, "^")) {
       this.parseFactor(instr);
-      instr.push(binaryInstruction('^'));
+      instr.push(binaryInstruction("^"));
     }
   };
 
   ParserState.prototype.parsePostfixExpression = function (instr) {
     this.parseFunctionCall(instr);
-    while (this.accept(TOP, '!')) {
-      instr.push(unaryInstruction('!'));
+    while (this.accept(TOP, "!")) {
+      instr.push(unaryInstruction("!"));
     }
   };
 
@@ -1076,8 +1204,8 @@
       instr.push(unaryInstruction(op.value));
     } else {
       this.parseMemberExpression(instr);
-      while (this.accept(TPAREN, '(')) {
-        if (this.accept(TPAREN, ')')) {
+      while (this.accept(TPAREN, "(")) {
+        if (this.accept(TPAREN, ")")) {
           instr.push(new Instruction(IFUNCALL, 0));
         } else {
           var argCount = this.parseArgumentList(instr);
@@ -1090,7 +1218,7 @@
   ParserState.prototype.parseArgumentList = function (instr) {
     var argCount = 0;
 
-    while (!this.accept(TPAREN, ')')) {
+    while (!this.accept(TPAREN, ")")) {
       this.parseExpression(instr);
       ++argCount;
       while (this.accept(TCOMMA)) {
@@ -1104,7 +1232,7 @@
 
   ParserState.prototype.parseMemberExpression = function (instr) {
     this.parseAtom(instr);
-    while (this.accept(TOP, '.')) {
+    while (this.accept(TOP, ".")) {
       if (!this.allowMemberAccess) {
         throw new Error('unexpected ".", member access is not permitted');
       }
@@ -1135,7 +1263,7 @@
   }
 
   function concat(a, b) {
-    return '' + a + b;
+    return "" + a + b;
   }
 
   function equal(a, b) {
@@ -1175,11 +1303,11 @@
   }
 
   function sinh(a) {
-    return ((Math.exp(a) - Math.exp(-a)) / 2);
+    return (Math.exp(a) - Math.exp(-a)) / 2;
   }
 
   function cosh(a) {
-    return ((Math.exp(a) + Math.exp(-a)) / 2);
+    return (Math.exp(a) + Math.exp(-a)) / 2;
   }
 
   function tanh(a) {
@@ -1190,15 +1318,15 @@
 
   function asinh(a) {
     if (a === -Infinity) return a;
-    return Math.log(a + Math.sqrt((a * a) + 1));
+    return Math.log(a + Math.sqrt(a * a + 1));
   }
 
   function acosh(a) {
-    return Math.log(a + Math.sqrt((a * a) - 1));
+    return Math.log(a + Math.sqrt(a * a - 1));
   }
 
   function atanh(a) {
-    return (Math.log((1 + a) / (1 - a)) / 2);
+    return Math.log((1 + a) / (1 - a)) / 2;
   }
 
   function log10(a) {
@@ -1221,25 +1349,24 @@
     return Math.random() * (a || 1);
   }
 
-  function factorial(a) { // a!
+  function factorial(a) {
+    // a!
     return gamma(a + 1);
   }
 
   function isInteger(value) {
-    return isFinite(value) && (value === Math.round(value));
+    return isFinite(value) && value === Math.round(value);
   }
 
   var GAMMA_G = 4.7421875;
   var GAMMA_P = [
-    0.99999999999999709182,
-    57.156235665862923517, -59.597960355475491248,
-    14.136097974741747174, -0.49191381609762019978,
-    0.33994649984811888699e-4,
+    0.99999999999999709182, 57.156235665862923517, -59.597960355475491248,
+    14.136097974741747174, -0.49191381609762019978, 0.33994649984811888699e-4,
     0.46523628927048575665e-4, -0.98374475304879564677e-4,
     0.15808870322491248884e-3, -0.21026444172410488319e-3,
-    0.21743961811521264320e-3, -0.16431810653676389022e-3,
-    0.84418223983852743293e-4, -0.26190838401581408670e-4,
-    0.36899182659531622704e-5
+    0.2174396181152126432e-3, -0.16431810653676389022e-3,
+    0.84418223983852743293e-4, -0.2619083840158140867e-4,
+    0.36899182659531622704e-5,
   ];
 
   // Gamma function from math.js
@@ -1277,15 +1404,23 @@
       return Infinity; // will overflow
     }
 
-    if (n > 85.0) { // Extended Stirling Approx
+    if (n > 85.0) {
+      // Extended Stirling Approx
       var twoN = n * n;
       var threeN = twoN * n;
       var fourN = threeN * n;
       var fiveN = fourN * n;
-      return Math.sqrt(2 * Math.PI / n) * Math.pow((n / Math.E), n) *
-        (1 + (1 / (12 * n)) + (1 / (288 * twoN)) - (139 / (51840 * threeN)) -
-        (571 / (2488320 * fourN)) + (163879 / (209018880 * fiveN)) +
-        (5246819 / (75246796800 * fiveN * n)));
+      return (
+        Math.sqrt((2 * Math.PI) / n) *
+        Math.pow(n / Math.E, n) *
+        (1 +
+          1 / (12 * n) +
+          1 / (288 * twoN) -
+          139 / (51840 * threeN) -
+          571 / (2488320 * fourN) +
+          163879 / (209018880 * fiveN) +
+          5246819 / (75246796800 * fiveN * n))
+      );
     }
 
     --n;
@@ -1310,7 +1445,7 @@
       var div;
       if (larg < arg) {
         div = larg / arg;
-        sum = (sum * div * div) + 1;
+        sum = sum * div * div + 1;
         larg = arg;
       } else if (arg > 0) {
         div = arg / larg;
@@ -1327,30 +1462,30 @@
   }
 
   /**
-  * Decimal adjustment of a number.
-  * From @escopecz.
-  *
-  * @param {Number} value The number.
-  * @param {Integer} exp  The exponent (the 10 logarithm of the adjustment base).
-  * @return {Number} The adjusted value.
-  */
+   * Decimal adjustment of a number.
+   * From @escopecz.
+   *
+   * @param {Number} value The number.
+   * @param {Integer} exp  The exponent (the 10 logarithm of the adjustment base).
+   * @return {Number} The adjusted value.
+   */
   function roundTo(value, exp) {
     // If the exp is undefined or zero...
-    if (typeof exp === 'undefined' || +exp === 0) {
+    if (typeof exp === "undefined" || +exp === 0) {
       return Math.round(value);
     }
     value = +value;
-    exp = -(+exp);
+    exp = -+exp;
     // If the value is not a number or the exp is not an integer...
-    if (isNaN(value) || !(typeof exp === 'number' && exp % 1 === 0)) {
+    if (isNaN(value) || !(typeof exp === "number" && exp % 1 === 0)) {
       return NaN;
     }
     // Shift
-    value = value.toString().split('e');
-    value = Math.round(+(value[0] + 'e' + (value[1] ? (+value[1] - exp) : -exp)));
+    value = value.toString().split("e");
+    value = Math.round(+(value[0] + "e" + (value[1] ? +value[1] - exp : -exp)));
     // Shift back
-    value = value.toString().split('e');
-    return +(value[0] + 'e' + (value[1] ? (+value[1] + exp) : exp));
+    value = value.toString().split("e");
+    return +(value[0] + "e" + (value[1] ? +value[1] + exp : exp));
   }
 
   function Parser(options) {
@@ -1378,35 +1513,35 @@
       floor: Math.floor,
       round: Math.round,
       trunc: Math.trunc || trunc,
-      '-': neg,
-      '+': Number,
+      "-": neg,
+      "+": Number,
       exp: Math.exp,
-      '!': not,
+      "!": not,
       length: stringLength,
-      'fac': factorial
+      fac: factorial,
     };
 
     this.binaryOps = {
-      '+': add,
-      '-': sub,
-      '*': mul,
-      '/': div,
-      '%': mod,
-      '^': Math.pow,
-      '--': concat,
-      '==': equal,
-      '!=': notEqual,
-      '>': greaterThan,
-      '<': lessThan,
-      '>=': greaterThanEqual,
-      '<=': lessThanEqual,
-      '&&': andOperator,
-      '||': orOperator,
-      'in': inOperator
+      "+": add,
+      "-": sub,
+      "*": mul,
+      "/": div,
+      "%": mod,
+      "^": Math.pow,
+      "--": concat,
+      "==": equal,
+      "!=": notEqual,
+      ">": greaterThan,
+      "<": lessThan,
+      ">=": greaterThanEqual,
+      "<=": lessThanEqual,
+      "&&": andOperator,
+      "||": orOperator,
+      in: inOperator,
     };
 
     this.ternaryOps = {
-      '?': condition
+      "?": condition,
     };
 
     this.functions = {
@@ -1418,29 +1553,27 @@
       pyt: Math.hypot || hypot, // backward compat
       pow: Math.pow,
       atan2: Math.atan2,
-      'if': condition,
+      if: condition,
       gamma: gamma,
-      roundTo: roundTo
+      roundTo: roundTo,
     };
 
     this.consts = {
       E: Math.E,
       PI: Math.PI,
-      'true': true,
-      'false': false
+      true: true,
+      false: false,
     };
   }
 
   Parser.prototype.parse = function (expr) {
     var instr = [];
-    var parserState = new ParserState(
-      this,
-      new TokenStream(this, expr),
-      { allowMemberAccess: this.options.allowMemberAccess }
-    );
+    var parserState = new ParserState(this, new TokenStream(this, expr), {
+      allowMemberAccess: this.options.allowMemberAccess,
+    });
 
     parserState.parseExpression(instr);
-    parserState.expect(TEOF, 'EOF');
+    parserState.expect(TEOF, "EOF");
 
     return new Expression(instr, this);
   };
@@ -1472,9 +1605,8 @@
 
   var index = {
     Parser: Parser,
-    Expression: Expression
+    Expression: Expression,
   };
 
   return index;
-
-})));
+});
