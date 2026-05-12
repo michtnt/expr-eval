@@ -1,5 +1,5 @@
 {
-  "name": "expr-eval-checkbox",
+  "name": "@checkbox/expr-eval",
   "version": "2.0.0",
   "description": "Mathematical expression evaluator",
   "main": "dist/bundle.js",
