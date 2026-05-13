@@ -1,6 +1,6 @@
 {
   "name": "@checkbox/expr-eval",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Mathematical expression evaluator",
   "main": "dist/bundle.js",
   "typings": "parser.d.ts",
@@ -34,7 +34,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/silentmatt/expr-eval.git"
+    "url": "git+https://github.com/CheckboxAI/expr-eval.git"
   },
   "keywords": [
     "expression",
@@ -44,10 +44,10 @@
     "function",
     "parser"
   ],
-  "author": "Matthew Crumley",
+  "author": "Checkbox AI",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/silentmatt/expr-eval/issues"
+    "url": "https://github.com/CheckboxAI/expr-eval/issues"
   },
-  "homepage": "https://github.com/silentmatt/expr-eval#readme"
+  "homepage": "https://github.com/CheckboxAI/expr-eval#readme"
 }
