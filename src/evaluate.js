@@ -7,7 +7,7 @@ import {
   IFUNCALL,
   IEXPR,
   IMEMBER,
-} from "./instruction";
+} from './instruction';
 
 var DANGEROUS_PROPERTIES = {
   __proto__: true,
@@ -24,7 +24,7 @@ function isAllowedFunc(f, expr, values) {
   if (Object.values(expr.functions).includes(f)) return true;
 
   for (const v of Object.values(values)) {
-    if (typeof v === "object" && v !== null) {
+    if (typeof v === 'object' && v !== null) {
       for (const subV of Object.values(v)) {
         if (subV === f) {
           const SAFE_MATH = Object.freeze({
@@ -89,9 +89,9 @@ export default function evaluate(tokens, expr, values) {
     } else if (type === IOP2) {
       n2 = nstack.pop();
       n1 = nstack.pop();
-      if (item.value === "&&") {
+      if (item.value === '&&') {
         nstack.push(n1 ? !!evaluate(n2, expr, values) : false);
-      } else if (item.value === "||") {
+      } else if (item.value === '||') {
         nstack.push(n1 ? true : !!evaluate(n2, expr, values));
       } else {
         f = expr.binaryOps[item.value];
@@ -101,7 +101,7 @@ export default function evaluate(tokens, expr, values) {
       n3 = nstack.pop();
       n2 = nstack.pop();
       n1 = nstack.pop();
-      if (item.value === "?") {
+      if (item.value === '?') {
         nstack.push(evaluate(n1 ? n2 : n3, expr, values));
       } else {
         f = expr.ternaryOps[item.value];
@@ -109,21 +109,21 @@ export default function evaluate(tokens, expr, values) {
       }
     } else if (type === IVAR) {
       if (DANGEROUS_PROPERTIES[item.value]) {
-        throw new Error("prototype access detected: " + item.value);
+        throw new Error('prototype access detected: ' + item.value);
       }
       if (item.value in expr.functions) {
         nstack.push(expr.functions[item.value]);
       } else {
         var v = values[item.value];
         if (v !== undefined) {
-          if (typeof v === "function" && !isAllowedFunc(v, expr, values)) {
+          if (typeof v === 'function' && !isAllowedFunc(v, expr, values)) {
             throw new Error(
-              "calling unregistered functions is not allowed: " + item.value,
+              'calling unregistered functions is not allowed: ' + item.value,
             );
           }
           nstack.push(v);
         } else {
-          throw new Error("undefined variable: " + item.value);
+          throw new Error('undefined variable: ' + item.value);
         }
       }
     } else if (type === IOP1) {
@@ -139,35 +139,35 @@ export default function evaluate(tokens, expr, values) {
       f = nstack.pop();
       if (f && f.apply && f.call) {
         if (!isAllowedFunc(f, expr, values)) {
-          throw new Error("calling unregistered functions is not allowed");
+          throw new Error('calling unregistered functions is not allowed');
         }
         nstack.push(f.apply(undefined, args));
       } else {
-        throw new Error(f + " is not a function");
+        throw new Error(f + ' is not a function');
       }
     } else if (type === IEXPR) {
       nstack.push(item.value);
     } else if (type === IMEMBER) {
       if (DANGEROUS_PROPERTIES[item.value]) {
-        throw new Error("prototype access detected: " + item.value);
+        throw new Error('prototype access detected: ' + item.value);
       }
       n1 = nstack.pop();
       var member = n1 == null ? undefined : n1[item.value];
       if (
-        typeof member === "function" &&
+        typeof member === 'function' &&
         !isAllowedFunc(member, expr, values)
       ) {
         throw new Error(
-          "calling unregistered functions is not allowed: " + item.value,
+          'calling unregistered functions is not allowed: ' + item.value,
         );
       }
       nstack.push(member);
     } else {
-      throw new Error("invalid Expression");
+      throw new Error('invalid Expression');
     }
   }
   if (nstack.length > 1) {
-    throw new Error("invalid Expression (parity)");
+    throw new Error('invalid Expression (parity)');
   }
   return nstack[0];
 }
