@@ -163,16 +163,20 @@ describe('Operators', function () {
     });
 
     it('skips rhs when lhs is false', function () {
+      var parser = new Parser();
       var notCalled = spy(returnFalse);
+      parser.functions.notCalled = notCalled;
 
-      assert.strictEqual(Parser.evaluate('false && notCalled()', { notCalled: notCalled }), false);
+      assert.strictEqual(parser.evaluate('false && notCalled()'), false);
       assert.strictEqual(notCalled.called, false);
     });
 
     it('evaluates rhs when lhs is true', function () {
+      var parser = new Parser();
       var called = spy(returnFalse);
+      parser.functions.called = called;
 
-      assert.strictEqual(Parser.evaluate('true && called()', { called: called }), false);
+      assert.strictEqual(parser.evaluate('true && called()'), false);
       assert.strictEqual(called.called, true);
     });
   });
@@ -203,16 +207,20 @@ describe('Operators', function () {
     });
 
     it('skips rhs when lhs is true', function () {
+      var parser = new Parser();
       var notCalled = spy(returnFalse);
+      parser.functions.notCalled = notCalled;
 
-      assert.strictEqual(Parser.evaluate('true || notCalled()', { notCalled: notCalled }), true);
+      assert.strictEqual(parser.evaluate('true || notCalled()'), true);
       assert.strictEqual(notCalled.called, false);
     });
 
     it('evaluates rhs when lhs is false', function () {
+      var parser = new Parser();
       var called = spy(returnTrue);
+      parser.functions.called = called;
 
-      assert.strictEqual(Parser.evaluate('false || called()', { called: called }), true);
+      assert.strictEqual(parser.evaluate('false || called()'), true);
       assert.strictEqual(called.called, true);
     });
   });
